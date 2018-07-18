@@ -97,14 +97,15 @@ $InstallResult = $updateInstaller.Install()
 		
 		$rebootFlag = ($computerHash.PedingReboot -eq $true) -and ($installOption -eq 'Reboot')
 		if ($rebootFlag) {
-			Restart-Computer -ComputerName $computerName -AsJob | Out-Null
+			Restart-Computer -ComputerName $computerName | Out-Null
 		}
 
 		$updatesFlag = ($computerHash.PedingUpdates -ne 0) -and ($computerHash.PedingReboot -eq $false) -and ($computerHash.TaskState -eq 'Idle')
         if ($updatesFlag) {
             $computerHash.TaskState = 'Started'
-	        Invoke-Command -Session $session -ArgumentList ($Script,$User) -AsJob -ScriptBlock {
-		        param ($Script,$User)
+	        $remoteTaskResult = Invoke-Command -Session $session -ArgumentList ($Script,$User) -ScriptBlock {
+                param ($Script,$User)
+                $schedReport = @{}
 		        $ScriptFile = $env:LocalAppData + "\Install-Updates.ps1"
 		        $Script | Out-File $ScriptFile
 		        if (-Not(Test-Path $ScriptFile)) {
@@ -122,9 +123,13 @@ $InstallResult = $updateInstaller.Install()
 		        $RootFolder = $Scheduler.GetFolder("\")
 		        #Delete existing task
 		        if ($RootFolder.GetTasks(1) | Where-Object {$_.Name -eq $TaskName}) {
+                    $schedReport.LastTaskResult = $RootFolder.GetTask($TaskName).LastTaskResult
 			        Write-Debug("Deleting existing task" + $TaskName)
 			        $RootFolder.DeleteTask($TaskName, 0)
-		        }
+                }
+                else {
+                    $schedReport.LastTaskResult = 'first run'
+                }
 
 		        $Task = $Scheduler.NewTask(0)
 		        $RegistrationInfo = $Task.RegistrationInfo
@@ -150,18 +155,15 @@ $InstallResult = $updateInstaller.Install()
 		        #Start the task to run in Local System account. 6: TASK_CREATE_OR_UPDATE
 		        $RootFolder.RegisterTaskDefinition($TaskName, $Task, 6, "SYSTEM", $Null, 1) | Out-Null
 		        #Wait for running task finished
-		        $RootFolder.GetTask($TaskName).Run(0) | Out-Null
-		        while ($Scheduler.GetRunningTasks(0) | Where-Object {$_.Name -eq $TaskName}) {
-			        Start-Sleep -s 1
-		        }
-
-		        #Clean up
-		        $RootFolder.DeleteTask($TaskName, 0)
-		        Remove-Item $ScriptFile
-	        } | Out-Null
-
+                $RootFolder.GetTask($TaskName).Run(0) | Out-Null
+                
+                $schedReport
+	        } 
+            $computerHash.LastTaskResult = $remoteTaskResult.LastTaskResult
         }
-
+        else {
+            $computerHash.LastTaskResult = 'N\A'
+        }
         
         $computerObject =  New-Object -TypeName psobject -Property $computerHash
         return $computerObject 
