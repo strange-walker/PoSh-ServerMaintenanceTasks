@@ -91,7 +91,7 @@ $InstallResult = $updateInstaller.Install()
             $task = $RootFolder.GetTasks(1)  | Where-Object {$_.Name -eq $TaskName}
             $task.State
         }
-        if ($installTask -eq 3) {$computerHash.TaskState = 'Already Running'}
+        if ($installTask -eq 4) {$computerHash.TaskState = 'Already Running'}
         else {$computerHash.TaskState = 'Idle'}
 		#endregion
 		
@@ -164,7 +164,17 @@ $InstallResult = $updateInstaller.Install()
         else {
             $computerHash.LastTaskResult = 'N\A'
         }
+
+        $computerHash.Uptime = Invoke-Command -Session $session -ScriptBlock { 
+            $diff = (get-date) - (Get-CimInstance -ClassName win32_operatingsystem).lastbootuptime
+            if ($diff.Days -ne 0) { $uptime += "$($diff.Days) days, " }
+            if ($diff.Hours -ne 0) { $uptime += "$($diff.Hours) hours, " }
+            if ($diff.Minutes -ne 0) { $uptime += "$($diff.Minutes) minutes, " }
+            if ($diff.Seconds -ne 0) { $uptime += "$($diff.Seconds) seconds" }
+            $uptime
+        }
         
+        Remove-PSSession $session
         $computerObject =  New-Object -TypeName psobject -Property $computerHash
         return $computerObject 
     }
